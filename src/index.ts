@@ -310,5 +310,12 @@ http.createServer((req, res) => {
   res.write("I am alive");
   res.end();
 }).listen(8080);
+import http from 'http';
+
+// هذا الكود يفتح "بوابة" صغيرة لكي يراها UptimeRobot و Render
+http.createServer((req, res) => {
+  res.write("Bot is Online!");
+  res.end();
+}).listen(8080);
 
 login();
