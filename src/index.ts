@@ -312,10 +312,12 @@ http.createServer((req, res) => {
 }).listen(8080);
 import http from 'http';
 
-// هذا الكود يفتح "بوابة" صغيرة لكي يراها UptimeRobot و Render
-http.createServer((req, res) => {
-  res.write("Bot is Online!");
+import http from 'http';
+
+// فتح بورت وهمي لإبقاء البوت حياً
+http.createServer((_req, res) => {
+  res.write("I am alive");
   res.end();
-}).listen(8080);
+}).listen(process.env.PORT || 8080);
 
 login();
