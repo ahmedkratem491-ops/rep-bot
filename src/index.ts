@@ -304,4 +304,11 @@ setInterval(() => {
   console.log(`[${new Date().toISOString()}] Bot alive — ping: ${client?.ws?.ping ?? "?"}ms`);
 }, 5 * 60 * 1000);
 
+import http from 'http';
+
+http.createServer((req, res) => {
+  res.write("I am alive");
+  res.end();
+}).listen(8080);
+
 login();
