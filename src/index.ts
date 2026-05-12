@@ -8,7 +8,7 @@ import {
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import http from 'http'; // استدعاء واحد فقط هنا
+import http from 'http';
 
 // --- 1. كود إبقاء البوت حياً (الخادم الوهمي) ---
 const PORT = process.env.PORT || 8080;
@@ -131,36 +131,57 @@ function registerEvents(c: Client) {
         return;
       }
 
-      // أمر الإبلاغ
+      // أمر الإبلاغ (الكود المطور الجديد)
       if (content.startsWith("ابلاغ")) {
         const reportChannelId = config.reportChannels[message.guild.id];
         if (!reportChannelId) {
-          await message.reply("لم يتم تعيين قناة للبلاغات.");
+          await message.reply("لم يتم تعيين قناة للبلاغات. يرجى استخدام `setreportchannel #القناة` أولاً.");
           return;
         }
+        
         const reportChannel = message.guild.channels.cache.get(reportChannelId) as TextChannel;
         const reportedUser = message.mentions.users.first();
+        
         if (!reportedUser) {
           await message.reply("يرجى ذكر المستخدم. مثال: `ابلاغ @فلان السبب`.");
           return;
         }
 
         const reason = content.split(' ').slice(2).join(' ') || "لم يتم تحديد سبب";
+
         const embed = new EmbedBuilder()
           .setColor(0xe74c3c)
-          .setTitle("🚨 بلاغ جديد")
+          .setTitle("🚨 بلاغ إداري جديد")
+          .setThumbnail(reportedUser.displayAvatarURL())
           .addFields(
-            { name: "📋 المُبلَّغ عنه", value: `<@${reportedUser.id}>`, inline: true },
-            { name: "👤 المُبلِّغ", value: `<@${message.author.id}>`, inline: true },
-            { name: "📝 السبب", value: reason }
+            { 
+              name: "📋 المُبلَّغ عنه", 
+              value: `<@${reportedUser.id}>\nID: \`${reportedUser.id}\``, 
+              inline: true 
+            },
+            { 
+              name: "👤 المُبلِّغ", 
+              value: `<@${message.author.id}>\nID: \`${message.author.id}\``, 
+              inline: true 
+            },
+            { 
+              name: "📍 مكان الواقعة", 
+              value: `**القناة:** <#${message.channel.id}>\n**رابط الرسالة:** [اضغط هنا للانتقال](${message.url})`, 
+              inline: false 
+            },
+            { 
+              name: "📝 السبب", 
+              value: `\`\`\`${reason}\`\`\`` 
+            }
           )
-          .setTimestamp();
+          .setTimestamp()
+          .setFooter({ text: `السيرفر: ${message.guild.name}` });
 
         const mentionRoleIds = config.mentionRoles?.[message.guild.id] ?? [];
         const mentionText = mentionRoleIds.map(id => `<@&${id}>`).join(" ");
 
         await reportChannel.send({ content: mentionText || undefined, embeds: [embed] });
-        await message.reply(`تم إرسال بلاغك بنجاح.`);
+        await message.reply(`✅ تم إرسال بلاغك ضد <@${reportedUser.id}> بنجاح.`);
       }
     } catch (err) {
       console.error("Error handling message:", err);
