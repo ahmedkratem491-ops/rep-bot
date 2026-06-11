@@ -58,7 +58,6 @@ function saveConfig(config: Config) {
 }
 
 let config = loadConfig();
-
 // --- 3. إعداد العميل (Client) والتوكن ---
 const token = process.env.DISCORD_BOT_TOKEN;
 
@@ -76,6 +75,9 @@ function createClient(): Client {
 if (!token) {
   console.error("ERROR: DISCORD_BOT_TOKEN is not set in Environment Variables.");
   process.exit(1);
+}
+
+let client: Client;
 }
 // --- 4. وظائف التشغيل والفعاليات ---
 async function login(retryDelay = 5000) {
