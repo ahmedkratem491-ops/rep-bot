@@ -58,6 +58,7 @@ function saveConfig(config: Config) {
 }
 
 let config = loadConfig();
+
 // --- 3. إعداد العميل (Client) والتوكن ---
 const token = process.env.DISCORD_BOT_TOKEN;
 
@@ -78,7 +79,7 @@ if (!token) {
 }
 
 let client: Client;
-}
+
 // --- 4. وظائف التشغيل والفعاليات ---
 async function login(retryDelay = 5000) {
   client = createClient();
@@ -295,6 +296,3 @@ process.on("unhandledRejection", (err) => console.error("Unhandled Rejection:", 
 process.on("uncaughtException", (err) => console.error("Uncaught Exception:", err));
 
 login();
-
-let client: Client;
-
