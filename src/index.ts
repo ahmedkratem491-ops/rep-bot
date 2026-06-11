@@ -4,6 +4,7 @@ import {
   EmbedBuilder,
   PermissionFlagsBits,
   TextChannel,
+  ChannelType,
 } from "discord.js";
 import fs from "fs";
 import path from "path";
@@ -24,9 +25,16 @@ http.createServer((_req, res) => {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = path.join(__dirname, "..", "data", "config.json");
 
+interface WelcomeCategoryConfig {
+  categoryId: string;
+  targetChannelId: string; // قناة إرسال الرسالة المعينة
+  message: string;
+}
+
 interface Config {
   reportChannels: Record<string, string>;
   mentionRoles: Record<string, string[]>;
+  welcomeCategories: Record<string, WelcomeCategoryConfig>;
 }
 
 function loadConfig(): Config {
@@ -34,13 +42,19 @@ function loadConfig(): Config {
     if (fs.existsSync(CONFIG_PATH)) {
       return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
     }
-  } catch {}
-  return { reportChannels: {}, mentionRoles: {} };
+  } catch (error) {
+    console.error("Error loading config, using default:", error);
+  }
+  return { reportChannels: {}, mentionRoles: {}, welcomeCategories: {} };
 }
 
 function saveConfig(config: Config) {
-  fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  try {
+    fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  } catch (error) {
+    console.error("Failed to save config file:", error);
+  }
 }
 
 let config = loadConfig();
@@ -63,9 +77,6 @@ if (!token) {
   console.error("ERROR: DISCORD_BOT_TOKEN is not set in Environment Variables.");
   process.exit(1);
 }
-
-let client: Client;
-
 // --- 4. وظائف التشغيل والفعاليات ---
 async function login(retryDelay = 5000) {
   client = createClient();
@@ -84,6 +95,39 @@ function registerEvents(c: Client) {
     console.log(`[${new Date().toISOString()}] Bot online: ${c.user?.tag}`);
   });
 
+  // --- حدث مراقبة إنشاء القنوات وإرسال الإشعار في قناة معينة ---
+  c.on("channelCreate", async (channel) => {
+    try {
+      if (!channel.guild || !channel.parentId) return;
+
+      const serverConfig = config.welcomeCategories?.[channel.guild.id];
+      if (!serverConfig) return;
+
+      // التحقق من أن القناة أُنشئت داخل الفئة المراقبة
+      if (channel.parentId === serverConfig.categoryId) {
+        
+        // جلب القناة المستهدفة لإرسال الرسالة إليها
+        let targetChannel: TextChannel | null = null;
+        try {
+          const ch = channel.guild.channels.cache.get(serverConfig.targetChannelId) || 
+                     await channel.guild.channels.fetch(serverConfig.targetChannelId);
+          if (ch instanceof TextChannel) targetChannel = ch;
+        } catch {
+          console.error("Target welcome channel not found.");
+          return;
+        }
+
+        if (targetChannel) {
+          // تنسيق النص واستبدال {channel} بمنشن القناة التي فُتحت
+          const formattedMessage = serverConfig.message.replace(/{channel}/g, `<#${channel.id}>`);
+          await targetChannel.send(formattedMessage);
+        }
+      }
+    } catch (err) {
+      console.error("Error handling channelCreate event:", err);
+    }
+  });
+
   c.on("messageCreate", async (message) => {
     try {
       if (message.author.bot || !message.guild) return;
@@ -91,10 +135,54 @@ function registerEvents(c: Client) {
       const content = message.content.trim();
       const lower = content.toLowerCase();
 
-      // أمر تعيين رتبة المنشن
+      // --- أمر إعداد الميزة الجديد ---
+      if (lower.startsWith("setwelcomecategory")) {
+        if (!message.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+          await message.reply("❌ تحتاج صلاحية مسؤول (Administrator) لاستخدام هذا الأمر.");
+          return;
+        }
+
+        const args = content.split(" ");
+        const categoryId = args[1];
+        const targetChannel = message.mentions.channels.first();
+
+        // استخراج الرسالة (تتخطى الأمر، الـ ID، ومنشن القناة)
+        const welcomeMsg = args.slice(3).join(" ");
+
+        if (!categoryId || !targetChannel || !(targetChannel instanceof TextChannel) || !welcomeMsg) {
+          await message.reply("❌ الاستخدام الخاطئ! الطريقة الصحيحة:\n`setwelcomecategory [ID_الفئة] [#منشن_القناة] الرسالة هنا`\n*تلميح: يمكنك كتابة `{channel}` لتظهر القناة الجديدة في الرسالة.*");
+          return;
+        }
+
+        // التأكد من صحة الـ ID الخاص بالفئة
+        try {
+          const targetCategory = await message.guild.channels.fetch(categoryId);
+          if (!targetCategory || targetCategory.type !== ChannelType.GuildCategory) {
+            await message.reply("❌ المعرّف (ID) الذي أدخلته ليس لفئة (Category) صالحة.");
+            return;
+          }
+        } catch {
+          await message.reply("❌ لم يتم العثور على الفئة، تأكد من الـ ID.");
+          return;
+        }
+
+        if (!config.welcomeCategories) config.welcomeCategories = {};
+        
+        config.welcomeCategories[message.guild.id] = {
+          categoryId: categoryId,
+          targetChannelId: targetChannel.id,
+          message: welcomeMsg
+        };
+
+        saveConfig(config);
+        await message.reply(`✅ تم الإعداد بنجاح! عند فتح قناة في الفئة المحددة، سيتم إرسال رسالتك في <#${targetChannel.id}>`);
+        return;
+      }
+
+      // --- أمر تعيين رتبة المنشن ---
       if (lower.startsWith("choose_role")) {
         if (message.author.id !== message.guild.ownerId) {
-          await message.reply("فقط مالك السيرفر يمكنه تعيين الرتبة.");
+          await message.reply("❌ فقط مالك السيرفر يمكنه تعيين الرتبة.");
           return;
         }
         const mentionedRole = message.mentions.roles.first();
@@ -114,10 +202,10 @@ function registerEvents(c: Client) {
         return;
       }
 
-      // أمر تعيين قناة البلاغات
+      // --- أمر تعيين قناة البلاغات ---
       if (lower.startsWith("setreportchannel")) {
         if (!message.member?.permissions.has(PermissionFlagsBits.Administrator)) {
-          await message.reply("تحتاج صلاحية مسؤول لتعيين القناة.");
+          await message.reply("❌ تحتاج صلاحية مسؤول (Administrator) لتعيين القناة.");
           return;
         }
         const mentionedChannel = message.mentions.channels.first();
@@ -127,52 +215,60 @@ function registerEvents(c: Client) {
         }
         config.reportChannels[message.guild.id] = mentionedChannel.id;
         saveConfig(config);
-        await message.reply(`تم تعيين قناة البلاغات إلى <#${mentionedChannel.id}>`);
+        await message.reply(`✅ تم تعيين قناة البلاغات إلى <#${mentionedChannel.id}>`);
         return;
       }
 
-      // أمر الإبلاغ (الكود المطور الجديد)
+      // --- أمر الإبلاغ ---
       if (content.startsWith("ابلاغ")) {
         const reportChannelId = config.reportChannels[message.guild.id];
         if (!reportChannelId) {
           await message.reply("لم يتم تعيين قناة للبلاغات. يرجى استخدام `setreportchannel #القناة` أولاً.");
           return;
         }
-        
-        const reportChannel = message.guild.channels.cache.get(reportChannelId) as TextChannel;
+
+        let reportChannel: TextChannel | null = null;
+        try {
+          const ch = message.guild.channels.cache.get(reportChannelId) || await message.guild.channels.fetch(reportChannelId);
+          if (ch instanceof TextChannel) reportChannel = ch;
+        } catch {
+          await message.reply("❌ تعذر العثور على قناة البلاغات.");
+          return;
+        }
+
+        if (!reportChannel) return;
+
         const reportedUser = message.mentions.users.first();
-        
         if (!reportedUser) {
           await message.reply("يرجى ذكر المستخدم. مثال: `ابلاغ @فلان السبب`.");
           return;
         }
 
-        const reason = content.split(' ').slice(2).join(' ') || "لم يتم تحديد سبب";
+        if (reportedUser.id === message.author.id) {
+          await message.reply("لا يمكنك الإبلاغ عن نفسك! 😉");
+          return;
+        }
+
+        const cleanReason = content
+          .replace(new RegExp(`^ابلاغ`, 'i'), '')
+          .replace(new RegExp(`<@!?${reportedUser.id}>`, 'g'), '')
+          .trim();
+
+        const reason = cleanReason || "لم يتم تحديد سبب";
 
         const embed = new EmbedBuilder()
           .setColor(0xe74c3c)
           .setTitle("🚨 بلاغ إداري جديد")
-          .setThumbnail(reportedUser.displayAvatarURL())
+          .setThumbnail(reportedUser.displayAvatarURL({ size: 256 }))
           .addFields(
-            { 
-              name: "📋 المُبلَّغ عنه", 
-              value: `<@${reportedUser.id}>\nID: \`${reportedUser.id}\``, 
-              inline: true 
-            },
-            { 
-              name: "👤 المُبلِّغ", 
-              value: `<@${message.author.id}>\nID: \`${message.author.id}\``, 
-              inline: true 
-            },
+            { name: "📋 المُبلَّغ عنه", value: `<@${reportedUser.id}>\nID: \`${reportedUser.id}\``, inline: true },
+            { name: "👤 المُبلِّغ", value: `<@${message.author.id}>\nID: \`${message.author.id}\``, inline: true },
             { 
               name: "📍 مكان الواقعة", 
               value: `**القناة:** <#${message.channel.id}>\n**رابط الرسالة:** [اضغط هنا للانتقال](${message.url})`, 
               inline: false 
             },
-            { 
-              name: "📝 السبب", 
-              value: `\`\`\`${reason}\`\`\`` 
-            }
+            { name: "📝 السبب", value: `\`\`\`${reason}\`\`\`` }
           )
           .setTimestamp()
           .setFooter({ text: `السيرفر: ${message.guild.name}` });
@@ -180,7 +276,11 @@ function registerEvents(c: Client) {
         const mentionRoleIds = config.mentionRoles?.[message.guild.id] ?? [];
         const mentionText = mentionRoleIds.map(id => `<@&${id}>`).join(" ");
 
-        await reportChannel.send({ content: mentionText || undefined, embeds: [embed] });
+        await reportChannel.send({ 
+          content: mentionText.length > 0 ? mentionText : undefined, 
+          embeds: [embed] 
+        });
+
         await message.reply(`✅ تم إرسال بلاغك ضد <@${reportedUser.id}> بنجاح.`);
       }
     } catch (err) {
@@ -189,9 +289,10 @@ function registerEvents(c: Client) {
   });
 }
 
-// معالجة الأخطاء المفاجئة
 process.on("unhandledRejection", (err) => console.error("Unhandled Rejection:", err));
 process.on("uncaughtException", (err) => console.error("Uncaught Exception:", err));
 
-// تشغيل البوت
 login();
+
+let client: Client;
+
