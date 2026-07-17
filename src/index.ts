@@ -34,7 +34,7 @@ interface WelcomeCategoryConfig {
 interface Config {
   reportChannels: Record<string, string>;
   mentionRoles: Record<string, string[]>;
-  welcomeCategories: Record<string, WelcomeCategoryConfig>;
+  welcomeCategories: Record<string, WelcomeCategoryConfig[]>; // تم التعديل إلى مصفوفة لدعم فئات متعددة
 }
 
 function loadConfig(): Config {
@@ -51,7 +51,7 @@ function loadConfig(): Config {
 function saveConfig(config: Config) {
   try {
     fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+    fs.writeFileSync(config_path, JSON.stringify(config, null, 2));
   } catch (error) {
     console.error("Failed to save config file:", error);
   }
@@ -103,28 +103,28 @@ function registerEvents(c: Client) {
     try {
       if (!channel.guild || !channel.parentId) return;
 
-      const serverConfig = config.welcomeCategories?.[channel.guild.id];
-      if (!serverConfig) return;
+      const serverCategories = config.welcomeCategories?.[channel.guild.id];
+      if (!serverCategories || !Array.isArray(serverCategories)) return;
 
-      // التحقق من أن القناة أُنشئت داخل الفئة المراقبة
-      if (channel.parentId === serverConfig.categoryId) {
-        
-        // جلب القناة المستهدفة لإرسال الرسالة إليها
-        let targetChannel: TextChannel | null = null;
-        try {
-          const ch = channel.guild.channels.cache.get(serverConfig.targetChannelId) || 
-                     await channel.guild.channels.fetch(serverConfig.targetChannelId);
-          if (ch instanceof TextChannel) targetChannel = ch;
-        } catch {
-          console.error("Target welcome channel not found.");
-          return;
-        }
+      // البحث عن إعدادات الفئة التي تم إنشاء القناة داخلها
+      const categoryConfig = serverCategories.find(cat => cat.categoryId === channel.parentId);
+      if (!categoryConfig) return;
 
-        if (targetChannel) {
-          // تنسيق النص واستبدال {channel} بمنشن القناة التي فُتحت
-          const formattedMessage = serverConfig.message.replace(/{channel}/g, `<#${channel.id}>`);
-          await targetChannel.send(formattedMessage);
-        }
+      // جلب القناة المستهدفة لإرسال الرسالة إليها
+      let targetChannel: TextChannel | null = null;
+      try {
+        const ch = channel.guild.channels.cache.get(categoryConfig.targetChannelId) || 
+                   await channel.guild.channels.fetch(categoryConfig.targetChannelId);
+        if (ch instanceof TextChannel) targetChannel = ch;
+      } catch {
+        console.error("Target welcome channel not found.");
+        return;
+      }
+
+      if (targetChannel) {
+        // تنسيق النص واستبدال {channel} بمنشن القناة التي فُتحت
+        const formattedMessage = categoryConfig.message.replace(/{channel}/g, `<#${channel.id}>`);
+        await targetChannel.send(formattedMessage);
       }
     } catch (err) {
       console.error("Error handling channelCreate event:", err);
@@ -170,22 +170,35 @@ function registerEvents(c: Client) {
         }
 
         if (!config.welcomeCategories) config.welcomeCategories = {};
-        
-        config.welcomeCategories[message.guild.id] = {
+        if (!config.welcomeCategories[message.guild.id]) {
+          config.welcomeCategories[message.guild.id] = [];
+        }
+
+        const serverCategories = config.welcomeCategories[message.guild.id];
+        const existingIndex = serverCategories.findIndex(cat => cat.categoryId === categoryId);
+
+        const newConfigData = {
           categoryId: categoryId,
           targetChannelId: targetChannel.id,
           message: welcomeMsg
         };
+
+        // إذا كانت الفئة مسجلة مسبقاً نقوم بتحديثها، وإلا نضيفها كجديدة
+        if (existingIndex !== -1) {
+          serverCategories[existingIndex] = newConfigData;
+        } else {
+          serverCategories.push(newConfigData);
+        }
 
         saveConfig(config);
         await message.reply(`✅ تم الإعداد بنجاح! عند فتح قناة في الفئة المحددة، سيتم إرسال رسالتك في <#${targetChannel.id}>`);
         return;
       }
 
-      // --- أمر تعيين رتبة المنشن ---
+      // --- أمر تعيين رتبة المنشن (تم التعديل ليقبل الـ Administrator بدلاً من المالك فقط) ---
       if (lower.startsWith("choose_role")) {
-        if (message.author.id !== message.guild.ownerId) {
-          await message.reply("❌ فقط مالك السيرفر يمكنه تعيين الرتبة.");
+        if (!message.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+          await message.reply("❌ تحتاج صلاحية مسؤول (Administrator) لاستخدام هذا الأمر.");
           return;
         }
         const mentionedRole = message.mentions.roles.first();
@@ -296,3 +309,4 @@ process.on("unhandledRejection", (err) => console.error("Unhandled Rejection:", 
 process.on("uncaughtException", (err) => console.error("Uncaught Exception:", err));
 
 login();
+
