@@ -51,7 +51,7 @@ function loadConfig(): Config {
 function saveConfig(config: Config) {
   try {
     fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(config_path, JSON.stringify(config, null, 2));
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
   } catch (error) {
     console.error("Failed to save config file:", error);
   }
@@ -59,8 +59,8 @@ function saveConfig(config: Config) {
 
 let config = loadConfig();
 
-// --- 3. إعداد العميل (Client) والتوكن ---
-const token = process.env.DISCORD_BOT_TOKEN;
+// --- 3. إعداد العميل (Client) والتوكن تم التعديل اليدوي بنجاح ---
+const token = "MTUwMTcwMTM5NDU1NjY0OTUyMg.GXtkIM.FdEQHN4SzrbV6wovCRWXnaBq8Ya-ZdcIhBUkbw";
 
 function createClient(): Client {
   return new Client({
@@ -74,7 +74,7 @@ function createClient(): Client {
 }
 
 if (!token) {
-  console.error("ERROR: DISCORD_BOT_TOKEN is not set in Environment Variables.");
+  console.error("ERROR: DISCORD_BOT_TOKEN is not set.");
   process.exit(1);
 }
 
@@ -95,7 +95,7 @@ async function login(retryDelay = 5000) {
 
 function registerEvents(c: Client) {
   c.once("ready", () => {
-    console.log(`[${new Date().toISOString()}] Bot online: ${c.user?.tag}`);
+    console.log(`[${new Date().toISOString()}] === البوت شغال الآن وجاهز باسم: ${c.user?.tag} ===`);
   });
 
   // --- حدث مراقبة إنشاء القنوات وإرسال الإشعار في قناة معينة ---
@@ -195,7 +195,7 @@ function registerEvents(c: Client) {
         return;
       }
 
-      // --- أمر تعيين رتبة المنشن (تم التعديل ليقبل الـ Administrator بدلاً من المالك فقط) ---
+      // --- أمر تعيين رتبة المنشن ---
       if (lower.startsWith("choose_role")) {
         if (!message.member?.permissions.has(PermissionFlagsBits.Administrator)) {
           await message.reply("❌ تحتاج صلاحية مسؤول (Administrator) لاستخدام هذا الأمر.");
@@ -309,4 +309,3 @@ process.on("unhandledRejection", (err) => console.error("Unhandled Rejection:", 
 process.on("uncaughtException", (err) => console.error("Uncaught Exception:", err));
 
 login();
-
